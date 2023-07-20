@@ -1,0 +1,424 @@
+rom PIL import Image as PILImage, ImageTk
+import tkinter as tk
+from tkinter import *
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
+from tkcalendar import Calendar
+from tkinter import messagebox
+from tkinter import ttk
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from datetime import datetime
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import sqlite3
+
+def connetti_database():
+    connessione = sqlite3.connect("EcoBoom.db")
+    cursor = connessione.cursor()
+    cursor.execute('''CREATE TABLE IF NOT EXISTS transazioni
+                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   valore_transazione REAL,
+                   data_transazione TEXT)''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS obbiettivi_finanziari
+                   (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   valore_totale_transazioni REAL NOT NULL,
+                   data_scadenza TEXT NOT NULL)''')
+    
+    return connessione, cursor
+
+    
+
+
+def torna_indietro():
+    global schermata_corrente
+    schermata_corrente.destroy()
+    inizio_programma()
+
+def menu_opzioni():
+    messagebox.showinfo("EcoBoom 1.0", "EcoBoom versione 1.0\n Creato da: \n Alessandro Altobelli\nGmail: aaltobelli321@gmail.com")
+
+def inserisci_transazione():
+    global schermata_corrente, valore, data, insert
+    transazione_in = Frame(root)
+    schermata_corrente.destroy()
+    schermata_corrente = transazione_in
+    schermata_corrente.pack(fill=BOTH, expand=True)
+
+    title = Label(schermata_corrente, text="Inserire transazione", font=("Helvetica", 25), background="#909090")
+    title.pack(pady=50)
+
+    valore = DoubleVar()
+    data = StringVar()
+    insert = Entry(schermata_corrente, width=100, textvariable=valore)
+    insert.pack(pady=10)
+
+    dataText = Label(schermata_corrente, text="Inserisci la data della transazione", font=("Helvetica", 25), background="#909090")
+    dataText.pack(pady=10)
+
+    data = Calendar(schermata_corrente, selectmode="day", date_pattern="dd/MM/yyyy", font=("Helvetica", 14))
+    data.pack(pady=10)
+
+    salva_button = Button(schermata_corrente, text="Salva transazione", font=("Helvetica", 16), command=salva_transazione,  background="green")
+    salva_button.pack(pady=10)
+
+def salva_obiettivo():
+    cifra_soldi = entry_cifra_soldi.get()
+    data_scadenza = calendar.get_date()
+
+    if not cifra_soldi or not data_scadenza:
+        messagebox.showerror("Errore", "Inserisci una cifra di soldi e una data di scadenza valide!")
+    else:
+        connessione, cursor = connetti_database()
+        query = "INSERT INTO obbiettivi_finanziari (valore_totale_transazioni, data_scadenza) VALUES (?, ?)"
+        values = (float(cifra_soldi), data_scadenza)
+        cursor.execute(query, values)
+        connessione.commit()
+
+        messagebox.showinfo("Successo!", "L'obiettivo finanziario è stato salvato con successo!")
+
+        update_obiettivo() 
+
+def salva_transazione():
+    valore = float(insert.get())
+    data_selezionata = data.get_date()
+
+    if valore == 0.0 or data_selezionata == None:
+        messagebox.showerror("Errore","Seleziona una data o un valore!")
+    else:
+        connessione, cursor = connetti_database()
+        query = "INSERT INTO transazioni (valore_transazione, data_transazione) VALUES (?, ?)"
+        values = (valore, data_selezionata)
+
+        cursor.execute(query, values)
+        connessione.commit()
+  
+
+        messagebox.showinfo("Successo!", "Hai salvato la tua transazione")
+
+        inizio_programma()
+
+tabella = None  # Dichiarazione globale della variabile tabella
+
+def elimina_transazione():
+    selezione = tabella.focus()
+    if selezione:
+        row = tabella.item(selezione)["values"][0]
+        connessione, cursor = connetti_database()
+        query = "DELETE FROM transazioni WHERE valore_transazione = ?"
+        cursor.execute(query, (row,))
+        connessione.commit()
+    
+        Visualizza_transazioni()
+
+def Visualizza_transazioni():
+    global schermata_corrente
+    global tabella  
+    global totale_label
+    schermata_corrente.destroy()
+    visualizza_transazioni = tk.Frame(root, bg="white")
+    visualizza_transazioni.pack(fill="both", expand=True)
+    schermata_corrente = visualizza_transazioni
+
+    titolo_presente = False
+
+    for child in visualizza_transazioni.winfo_children():
+        child.destroy()
+
+    titolo_presente = False  
+
+    for child in visualizza_transazioni.winfo_children():
+        if isinstance(child, Label) and child.cget("text") == "Visualizza le tue transazioni":
+            titolo_presente = True
+            break
+
+    if not titolo_presente:
+        titolo = Label(visualizza_transazioni, text="Visualizza le tue transazioni", font=("Helvetica", 24), background="white")
+        titolo.pack(pady=50)
+        
+    elimina_pulsante = Button(visualizza_transazioni, text="Elimina", command=elimina_transazione, background="red")
+    elimina_pulsante.pack(side="top")
+
+    connessione, cursor = connetti_database()
+    query = "SELECT valore_transazione, data_transazione FROM transazioni"
+    cursor.execute(query)
+    columns = [column[0] for column in cursor.description]
+    data = cursor.fetchall()
+   
+
+    tabella = ttk.Treeview(visualizza_transazioni, columns=columns, show="headings")
+
+    tabella.configure(height=5)
+    for column in columns:
+        tabella.heading(column, text=column, anchor=tk.CENTER)
+        tabella.column(column, width=200, anchor=tk.CENTER)
+
+    for row in data:
+        valore_transazione = row[0]
+        if valore_transazione > 0:
+            tabella.insert("", "end", values=row, tags="positivo")
+        else:
+            tabella.insert("", "end", values=row, tags="negativo")
+
+    tabella.tag_configure("positivo", background="#4FB635")
+    tabella.tag_configure("negativo", background="red")
+
+    style = ttk.Style()
+    style.configure("Custom.Treeview.Heading", font=("Helvetica", 20))
+    tabella.tag_configure("Custom.Treeview.Heading", font=("Helvetica", 20))
+
+    tabella.pack(fill=BOTH, expand=True)
+
+    calcola_pulsante = Button(visualizza_transazioni, text="Calcola totale", command=calcola_totale, background="#9a9696")
+    calcola_pulsante.pack(side="bottom")
+
+    totale_label = Label(visualizza_transazioni, text="Totale: €0.00", font=("Helvetica", 14))
+    totale_label.pack(side="bottom")
+
+def calcola_totale():
+    connessione, cursor = connetti_database()
+    query = "SELECT SUM(valore_transazione) AS totale FROM transazioni"
+    cursor.execute(query)
+    result = cursor.fetchone()
+   
+
+    if result and result[0]:
+        totale_label.config(text=f"Totale: €{result[0]:,.2f}")
+    else:
+        totale_label.config(text="Totale: €0.00")
+
+def genera_grafico(grafico):
+    connessione, cursor = connetti_database()
+    query = "SELECT data_transazione, valore_transazione FROM transazioni"
+    cursor.execute(query)
+    rows = cursor.fetchall()
+    
+
+    date = []
+    totali = []
+    totale = 0
+
+    rows.sort(key=lambda x: datetime.strptime(x[0], "%d/%m/%Y"))
+
+    for riga in rows:
+        data_str = riga[0]
+        valore_transazione = riga[1]
+
+        data = datetime.strptime(data_str, "%d/%m/%Y")
+        date.append(data)
+
+        totale += valore_transazione
+        totali.append(totale)
+
+    fig = Figure(figsize=(6, 4), dpi=100)
+    ax = fig.add_subplot(111)
+    ax.plot(date, totali, marker='o', linestyle='-', color='green' if totale >= 0 else 'red')
+
+    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%d-%m-%Y'))
+
+    fig.autofmt_xdate()
+
+    ax.set_xlabel('Data')
+    ax.set_ylabel('Totale delle Transazioni')
+    ax.set_title('Andamento del Totale delle Transazioni nel Tempo')
+    ax.grid(True)
+
+    canvas = FigureCanvasTkAgg(fig, master=grafico)
+    canvas.get_tk_widget().config(width=600, height=400)
+    canvas.draw()
+    canvas.get_tk_widget().pack()
+
+def vedi_bilancio():
+    global schermata_corrente
+    global totale_label
+    schermata_corrente.destroy()
+    bilancio_page = Frame(root, bg="white")
+    bilancio_page.pack(fill=BOTH, expand=True)
+    schermata_corrente = bilancio_page
+    titolo = Label(bilancio_page, text="Bilancio", font=("Helvetica", 24))
+    titolo.pack(pady=50)
+
+    totale_label = Label(bilancio_page, text="Totale: €0.00", font=("Helvetica", 14))
+    totale_label.pack()
+    aggiorna_bilancio = Button(bilancio_page, text="Aggiorna bilancio",background="#909090", command=calcola_totale)
+    aggiorna_bilancio.pack()
+
+    grafico_frame = Frame(bilancio_page, width=600, height=400)
+    grafico_frame.pack(pady=50)
+
+    canvas = Canvas(grafico_frame, width=600, height=500)
+    canvas.pack(side="left", fill="both", expand=True)
+
+    scrollbar = Scrollbar(grafico_frame, command=canvas.yview)
+    scrollbar.pack(side="right", fill="y")
+
+    canvas.configure(yscrollcommand=scrollbar.set)
+    canvas.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+
+    grafico = Frame(canvas)
+    canvas.create_window((0, 0), window=grafico, anchor="nw")
+
+    frame_bottone = Frame(grafico)
+    frame_bottone.pack(pady=10)
+
+    aggiorna_grafico_btn = Button(frame_bottone, text="Aggiorna grafico", bg="#909090", command=lambda: genera_grafico(grafico))
+    aggiorna_grafico_btn.pack(side="left", padx=10)
+
+    torna_indietro_btn = Button(frame_bottone, text="Torna Indietro", bg="#909090", command=torna_indietro)
+    torna_indietro_btn.pack(side="left", padx=10)
+
+    canvas.update_idletasks()
+    canvas.configure(scrollregion=canvas.bbox("all"))
+
+root = tk.Tk()
+root.attributes("-fullscreen", True)
+root.title("EcoBoom")
+
+topbar = tk.Frame(root, height=75, background="#aaa6a6")
+topbar.pack(side="top", fill="x")
+
+exit_button = tk.Button(topbar, text="Esci", background="red", command=lambda:root.quit())
+exit_button.pack(side="right", pady=20, padx=10)
+
+option_button = Button(topbar, text="Opzioni", background="#949494", command=menu_opzioni)
+option_button.pack(side="right", padx=10, pady=20)
+
+schermata_corrente = None
+torna_indietro_btn = None
+foto = None
+
+def elimina_obiettivo():
+    connessione, cursor = connetti_database()
+    cursor.execute("DELETE FROM obbiettivi_finanziari")
+    connessione.commit()
+    messagebox.showinfo("Successo!", "Tutti gli obiettivi finanziari sono stati eliminati con successo!")
+    update_obiettivo()
+
+
+
+def open_obb_fin():
+    connessione, cursor = connetti_database()
+    global schermata_corrente, entry_cifra_soldi, calendar, label_soldi_mancanti, label_giorni_mancanti
+    schermata_corrente.destroy()
+    obb_fin = Frame(root, bg="white")
+    obb_fin.pack(fill=BOTH, expand=True)
+    schermata_corrente = obb_fin
+   
+
+    label_cifra_soldi = Label(obb_fin, text="Cifra di soldi:", font=("Helvetica", 18))
+    label_cifra_soldi.pack( pady=10)
+
+    entry_cifra_soldi = Entry(obb_fin)
+    entry_cifra_soldi.pack( pady=10)
+
+    label_data_scadenza = Label(obb_fin, text="Data di scadenza:", font=("Helvetica", 18))
+    label_data_scadenza.pack( pady=10)
+
+    calendar = Calendar(obb_fin, selectmode="day", date_pattern="dd/MM/yyyy", font=("Helvetica", 12))
+    calendar.pack(pady=10)
+
+    button_salva = Button(obb_fin, text="Salva", command=salva_obiettivo, background="green")
+    button_salva.pack(pady=10)
+
+    label_soldi_mancanti = Label(obb_fin, text="Soldi mancanti per raggiungere l'obiettivo:",font=("Helvetica", 18))
+    label_soldi_mancanti.pack( pady=10)
+
+    label_giorni_mancanti = Label(obb_fin, text="Giorni mancanti allo scadere dell'obiettivo:",font=("Helvetica", 18))
+    label_giorni_mancanti.pack( pady=10)
+
+    button_aggiorna = Button(obb_fin, text="Aggiorna obiettivo", command=update_obiettivo, background="#909090")
+    button_aggiorna.pack(pady=10)
+    button_elimina = Button(obb_fin, text="Elimina obiettivo", command=elimina_obiettivo, background="red")
+    button_elimina.pack(pady=20)
+
+def update_obiettivo():
+    connessione, cursor = connetti_database()
+    cursor.execute("SELECT valore_totale_transazioni, data_scadenza FROM obbiettivi_finanziari")
+    risultato = cursor.fetchone()
+
+    if risultato:
+        cifra_soldi = risultato[0]
+        data_scadenza = risultato[1]
+
+        if cifra_soldi and data_scadenza:
+            somma_valori = 0.0
+            cursor.execute("SELECT SUM(valore_transazione) FROM transazioni")
+            risultato = cursor.fetchone()
+            if risultato:
+                somma_valori = risultato[0] or 0.0
+
+            soldi_mancanti = cifra_soldi - somma_valori
+
+            data_oggi = datetime.now().date()
+            data_scadenza = datetime.strptime(data_scadenza, "%d/%m/%Y").date()
+            giorni_mancanti = (data_scadenza - data_oggi).days
+
+            label_soldi_mancanti.config(text="Soldi mancanti per raggiungere l'obiettivo: " + str(soldi_mancanti))
+            label_giorni_mancanti.config(text="Giorni mancanti allo scadere dell'obiettivo: " + str(giorni_mancanti))
+    else:
+        label_soldi_mancanti.config(text="Soldi mancanti per raggiungere l'obiettivo:")
+        label_giorni_mancanti.config(text="Giorni mancanti allo scadere dell'obiettivo:")
+
+
+def menu_principale():
+    global schermata_corrente, torna_indietro_btn, foto
+
+    if schermata_corrente is not None:
+        schermata_corrente.destroy()
+     
+
+    schermata_iniziale = tk.Frame(root)
+    schermata_iniziale.pack(fill="both", expand=True)
+
+    titolo = tk.Label(schermata_iniziale, text="EcoBoom", font=("Arial", 50), fg="green", background="black")
+    titolo.pack(pady=25)
+
+    sottotitolo = tk.Label(schermata_iniziale, text="Benvenuto in EcoBoom!\nQui puoi calcolare e gestire le tue spese", font=("Arial", 25), background="#898A8B")
+    sottotitolo.pack(pady=50, padx=100, ipadx=10, ipady=10)
+
+   
+
+    spazio_pulsanti = tk.Frame(schermata_iniziale, height=125, width=600, background="#c7c7c7")
+    spazio_pulsanti.pack(pady=30)
+
+    torna_indietro_btn = tk.Button(topbar, text="Torna Indietro",background="#949494", command=torna_indietro)
+    torna_indietro_btn.pack(pady=20, padx=10, side="left")
+
+    inizio_btn = tk.Button(spazio_pulsanti, text="Inizia", background="#D4AF37", command=inizio_programma)
+    inizio_btn.pack(side="left", padx=25, pady=25, ipadx=10, ipady=10)
+
+    tutorial_btn = tk.Button(spazio_pulsanti, text="Tutorial", background="#D4AF37")
+    tutorial_btn.pack(side="right", padx=25, pady=25, ipadx=10, ipady=10)
+
+    schermata_corrente = schermata_iniziale
+
+def inizio_programma():
+    global schermata_corrente
+    connessione, cursor = connetti_database()
+    schermata_corrente.destroy()
+    home_page = tk.Frame(root, bg="white")
+    home_page.pack(fill=BOTH, expand=True)
+    schermata_corrente = home_page
+
+    titolo_home_page = Label(home_page, text="Pannello Di Controllo", font=("Gabriola", 50), background="#898A8B")
+    titolo_home_page.pack(pady=10, ipadx=10)
+
+
+    place_button = Frame(home_page, background="#9a9696", width=750, height=250)
+    place_button.pack(pady=40)
+
+    add_transazione = Button(place_button, text="Aggiungi transazione", command=inserisci_transazione, background="#949494")
+    add_transazione.grid(row=0, column=0, padx=30, pady=30)
+
+    vediall_transazioni = Button(place_button, text="Visualizza transazioni", background="#949494", command=Visualizza_transazioni)
+    vediall_transazioni.grid(row=0, column=1, padx=30, pady=30)
+
+    bilancio_btn = Button(place_button, text="Bilancio", background="#949494", command=vedi_bilancio)
+    bilancio_btn.grid(row=0, column=2, padx=30, pady=30)
+
+    
+    obb_finanz = Button(place_button, text="Obbiettivi finanziari", background="#949494", command=open_obb_fin)
+    obb_finanz.grid(row=0, column=4, padx=30, pady=30)
+
+menu_principale()
+root.mainloop()
